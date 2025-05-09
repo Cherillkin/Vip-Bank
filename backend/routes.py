@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from . import schemas, crud, database
 from .crud import CRUDClient, ACCESS_TOKEN_EXPIRE_MINUTES
+from .schemas import TokenData
 from .utils.backup import backup_database
 
 router = APIRouter()
@@ -35,7 +36,7 @@ def login(credentials: schemas.КлиентLogin, db: Session = Depends(get_db))
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = crud.create_access_token(
-        data={"sub": client.email, "id": client.id_клиента, "role": client.role_id},  # payload
+        data={"sub": client.email, "id": client.id_клиента, "role": client.id_роли},  # payload
         expires_delta=access_token_expires
     )
     return {
@@ -64,45 +65,37 @@ def create_account_from_type(account_type: schemas.ВидСчетаBase, db: Ses
 def create_account(account: schemas.СчетBase, db: Session = Depends(get_db)):
     return crud.create_account(db, account)
 
-@router.post("/invest_account/", response_model=schemas.ИнвестицииOut)
-def create_invest_account(invest_account: schemas.ИнвестицииBase, db: Session= Depends(get_db)):
-    return crud.create_invest_account(db, invest_account)
-
 @router.post("/interest_rate/", response_model=schemas.ПроцентнаяСтавкаOut)
 def create_interest_rate(interest_rate: schemas.ПроцентнаяСтавкаBase, db: Session = Depends(get_db)):
     return crud.create_interest_rate(db=db, interest_rate=interest_rate)
 
-@router.post("/investment_detail/", response_model=schemas.ДеталиИнвестицийBase)
-def create_investment_details(investment_detail: schemas.ДеталиИнвестицийBase, db: Session = Depends(get_db)):
-    return crud.create_investment_details(db, investment_detail)
-
 @router.post("/translation")
-def transfer_funds(id_sender: int, id_recipient: int, amount: int, db: Session = Depends(get_db)):
+def transfer_funds(id_sender_account: int, id_recipient_account: int, amount: int, db: Session = Depends(get_db)):
     try:
-        crud.transfer_funds(id_sender, id_recipient, amount, db)
+        crud.transfer_funds(id_sender_account, id_recipient_account, amount, db)
         return {"message": "Перевод успешно выполнен"}
     except HTTPException as e:
         raise e
 
 @router.post("/withdraw")
-def withdraw_cash(id_client: int, amount: int, db: Session = Depends(get_db)):
+def withdraw_cash(id_account: int, amount: int, db: Session = Depends(get_db)):
     try:
-        crud.cash_withdrawal(id_client, amount, db)
+        crud.cash_withdrawal(id_account, amount, db)
         return {"message": "Снятие прошло успешно"}
     except HTTPException as e:
         raise e
 
 @router.post("/replenishment")
-def replenishment_cash(id_client: int, amount: int, db: Session = Depends(get_db)):
+def replenishment_cash(id_account: int, amount: int, db: Session = Depends(get_db)):
     try:
-        crud.cash_replenishment(id_client, amount, db)
+        crud.cash_replenishment(id_account, amount, db)
         return {"message": "Пополнение прошло успешно"}
     except HTTPException as e:
         raise e
 
-@router.post("/yield/calculate/{briefcase_id}", response_model=schemas.ДоходностьИнвестицийOut)
-def calculate_yield(briefcase_id: int, db: Session = Depends(get_db)):
-    return crud.calculate_and_create_yield(db, briefcase_id)
+# @router.post("/yield/calculate/{briefcase_id}", response_model=schemas.ДоходностьИнвестицийOut)
+# def calculate_yield(briefcase_id: int, db: Session = Depends(get_db)):
+#     return crud.calculate_and_create_yield(db, briefcase_id)
 
 @router.put("/interest_rate/{id_interest_rate}/update_at", response_model=schemas.ПроцентнаяСтавкаOut)
 def update_interest_rate_at(id_interest_rate: int, db: Session = Depends(get_db)):
@@ -116,7 +109,14 @@ def delete_account_from_type(id_account_from_type: int, db: Session = Depends(ge
     return crud.delete_account_type_by_id(db=db, id_вида_счета=id_account_from_type)
 
 @router.get("/clients/{client_id}", response_model=schemas.КлиентOut)
-def read_client(client_id: int, db: Session = Depends(get_db)):
+def read_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: TokenData = Depends(crud.get_current_user)
+):
+    if current_user.role != 2:
+        crud.set_rls_context(db, current_user.id)
+
     db_client = crud.get_client_by_id(db, client_id)
     if db_client is None:
         raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -165,22 +165,9 @@ def get_interest_rate_by_id(id_interest_rate: int, db: Session = Depends(get_db)
 def get_account_by_id(id_account: int, db: Session = Depends(get_db)):
     return crud.get_account_by_id(db, id_account)
 
-@router.get("/invest_account/{id_briefcase}", response_model=schemas.ИнвестицииOut)
-def get_invest_account_by_id(id_invest_account: int, db: Session = Depends(get_db)):
-    return crud.get_invest_account_by_id(db, id_invest_account)
-
 @router.get("/types_invest", response_model=List[schemas.ТипИнвестицийOut])
 def get_all_types_invest(db: Session = Depends(get_db)):
     return crud.get_all_type_invest(db)
-
-@router.get("/investment-details/by-briefcase/{briefcase_id}", response_model=List[schemas.ДеталиИнвестицийOut])
-def read_investment_details_by_briefcase(briefcase_id: int, db: Session = Depends(get_db)):
-    return crud.get_investment_details_by_briefcase_id(db, briefcase_id)
-
-@router.get("/yield/{briefcase_id}", response_model=schemas.ДоходностьИнвестицийOut)
-def read_yield_by_briefcase_id(briefcase_id: int, db: Session = Depends(get_db)):
-    return crud.get_yield_by_briefcase_id(db, briefcase_id)
-
 
 
 # Для бэкапа БД

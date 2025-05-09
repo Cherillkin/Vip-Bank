@@ -2,7 +2,6 @@ from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey
 from sqlalchemy.orm import relationship
 
 from . import crud
-
 from .database import Base
 
 class Клиент(Base):
@@ -23,7 +22,7 @@ class Клиент(Base):
 
     роль = relationship("Роль", back_populates="клиенты")
     счета = relationship("Счет", back_populates="клиент")
-    инвестиции = relationship("Инвестиции", back_populates="клиент")
+    # Удалена строка: инвестиции = relationship("Инвестиции", back_populates="клиент")
 
 
 class Роль(Base):
@@ -41,6 +40,7 @@ class Улица(Base):
     название_улицы = Column(String)
 
     филиалы = relationship("Филиал", back_populates="улица")
+
 
 class Филиал(Base):
     __tablename__ = "филиал"
@@ -62,6 +62,7 @@ class ТипСчета(Base):
 
     виды_счетов = relationship("ВидСчета", back_populates="тип")
 
+
 class ВидСчета(Base):
     __tablename__ = "вид_счета"
 
@@ -73,6 +74,7 @@ class ВидСчета(Base):
     счета = relationship("Счет", back_populates="вид")
     процентные_ставки = relationship("ПроцентнаяСтавка", back_populates="вид")
 
+
 class ПроцентнаяСтавка(Base):
     __tablename__ = "процентная_ставка_в_сч"
 
@@ -82,6 +84,7 @@ class ПроцентнаяСтавка(Base):
     дата_изменения = Column(DateTime)
 
     вид = relationship("ВидСчета", back_populates="процентные_ставки")
+
 
 class Счет(Base):
     __tablename__ = "счет"
@@ -106,6 +109,7 @@ class Операция(Base):
 
     операции = relationship("БанковскаяОперация", back_populates="операция")
 
+
 class БанковскаяОперация(Base):
     __tablename__ = "банковская_операция"
 
@@ -116,47 +120,3 @@ class БанковскаяОперация(Base):
 
     счет = relationship("Счет", back_populates="операции")
     операция = relationship("Операция", back_populates="операции")
-
-
-class Инвестиции(Base):
-    __tablename__ = "инвестиции"
-
-    id_портфеля = Column(Integer, primary_key=True)
-    id_клиента = Column(Integer, ForeignKey("клиент.id_клиента"))
-    баланс = Column(crud.EncryptedBalance, nullable=False)
-    дата_создания = Column(DateTime)
-    статус = Column(String)
-
-    клиент = relationship("Клиент", back_populates="инвестиции")
-    детали = relationship("ДеталиИнвестиций", back_populates="портфель")
-    доходность = relationship("ДоходностьИнвестиций", back_populates="портфель")
-
-class ТипИнвестиций(Base):
-    __tablename__ = "типы_инвестиций"
-
-    id_типа_инвестиций = Column(Integer, primary_key=True)
-    название_типа = Column(String)
-
-    детали = relationship("ДеталиИнвестиций", back_populates="тип")
-
-class ДеталиИнвестиций(Base):
-    __tablename__ = "детали_инвестиций"
-
-    id_детали = Column(Integer, primary_key=True)
-    id_портфеля = Column(Integer, ForeignKey("инвестиции.id_портфеля"))
-    id_типа_инвестиций = Column(Integer, ForeignKey("типы_инвестиций.id_типа_инвестиций"))
-    сумма = Column(Integer)
-    дата_покупки = Column(DateTime)
-
-    портфель = relationship("Инвестиции", back_populates="детали")
-    тип = relationship("ТипИнвестиций", back_populates="детали")
-
-class ДоходностьИнвестиций(Base):
-    __tablename__ = "доходность_инвестиций"
-
-    id_доходности = Column(Integer, primary_key=True)
-    id_портфеля = Column(Integer, ForeignKey("инвестиции.id_портфеля"))
-    доходность = Column(Float)
-    дата_обновления = Column(DateTime)
-
-    портфель = relationship("Инвестиции", back_populates="доходность")

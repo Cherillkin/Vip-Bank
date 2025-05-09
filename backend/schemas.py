@@ -209,3 +209,8 @@ class УлицаOut(УлицаBase):
     model_config = {
         "from_attributes": True
     }
+
+class TokenData(BaseModel):
+    email: str
+    id: int
+    role: int
