@@ -1,10 +1,10 @@
-from datetime import timedelta
+from datetime import timedelta, date
 
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from . import schemas, crud, database
-from .crud import CRUDClient, ACCESS_TOKEN_EXPIRE_MINUTES
+from . import schemas, crud, database, models
+from .crud import CRUDClient, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
 from .schemas import TokenData
 from .utils.backup import backup_database
 
@@ -164,6 +164,23 @@ def get_interest_rate_by_id(id_interest_rate: int, db: Session = Depends(get_db)
 @router.get("/account/{id_account}", response_model=schemas.СчетOut)
 def get_account_by_id(id_account: int, db: Session = Depends(get_db)):
     return crud.get_account_by_id(db, id_account)
+
+@router.get("/accounts/{account_id}/card-operations/", response_model=List[schemas.БанковскаяОперацияOut])
+def get_card_operations_by_account(
+    account_id: int,
+    start_date: date = Query(..., description="Дата начала периода"),
+    end_date: date = Query(..., description="Дата конца периода"),
+    db: Session = Depends(get_db),
+    current_user: schemas.TokenData = Depends(get_current_user)
+):
+    account = db.query(models.Счет).filter(models.Счет.id_счета == account_id).first()
+
+    if account.id_клиента != current_user.id:
+        raise HTTPException(status_code=403, detail="Доступ к счёту запрещён.")
+
+    operations = crud.get_card_operations_by_account(db, account_id, start_date, end_date)
+    return operations
+
 
 @router.get("/types_invest", response_model=List[schemas.ТипИнвестицийOut])
 def get_all_types_invest(db: Session = Depends(get_db)):

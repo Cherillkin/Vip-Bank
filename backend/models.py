@@ -116,6 +116,7 @@ class БанковскаяОперация(Base):
     id_банковской_операции = Column(Integer, primary_key=True)
     id_счета = Column(Integer, ForeignKey("счет.id_счета"))
     сумма = Column(Integer)
+    дата_операции = Column(DateTime)
     id_операции = Column(Integer, ForeignKey("операции.id_операции"))
 
     счет = relationship("Счет", back_populates="операции")

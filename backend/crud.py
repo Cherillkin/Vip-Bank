@@ -12,6 +12,7 @@ from sqlalchemy import text
 from . import schemas, database
 from . import models
 import os
+import re
 import bcrypt
 
 import logging
@@ -47,6 +48,18 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
+def validate_password(password: str):
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Пароль должен содержать минимум 8 символов.")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=400, detail="Пароль должен содержать хотя бы одну заглавную букву.")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=400, detail="Пароль должен содержать хотя бы одну строчную букву.")
+    if not re.search(r"\d", password):
+        raise HTTPException(status_code=400, detail="Пароль должен содержать хотя бы одну цифру.")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        raise HTTPException(status_code=400, detail="Пароль должен содержать хотя бы один специальный символ.")
+
 def create_client(db: Session, client: schemas.КлиентCreate):
     existing_client = db.query(models.Клиент).filter(models.Клиент.email == client.email).first()
     if existing_client:
@@ -55,6 +68,8 @@ def create_client(db: Session, client: schemas.КлиентCreate):
     role = db.query(models.Роль).filter(models.Роль.id_роли == client.id_роли).first()
     if not role:
         raise HTTPException(status_code=400, detail=f"Роль с ID {client.id_роли} не найдена.")
+
+    validate_password(client.пароль)
 
     hashed_password = hash_password(client.пароль)
 
@@ -178,6 +193,29 @@ def get_account_by_id(db: Session, account_id: int):
         raise HTTPException(status_code=404, detail="Счёт не найден")
     return db_account
 
+def get_card_operations_by_account(
+    db: Session,
+    account_id: int,
+    start_date: datetime,
+    end_date: datetime
+):
+    account = db.query(models.Счет).join(models.ВидСчета).join(models.ТипСчета).filter(
+        models.Счет.id_счета == account_id,
+        models.ТипСчета.id_типа_счета == 4
+    ).first()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Карта с таким ID не найдена или не является карточной.")
+
+    operations = db.query(models.БанковскаяОперация).filter(
+        models.БанковскаяОперация.id_счета == account_id,
+        models.БанковскаяОперация.дата_операции >= start_date,
+        models.БанковскаяОперация.дата_операции <= end_date
+    ).all()
+
+    return operations
+
+
 def create_account_from_type(db: Session, account_from_type: schemas.ВидСчетаBase):
     account_type = db.query(models.ТипСчета).filter(
         models.ТипСчета.id_типа_счета == account_from_type.id_типа_счета
@@ -290,8 +328,8 @@ def transfer_funds(id_sender_account: int, id_recipient_account: int, amount: in
         raise HTTPException(status_code=404, detail="Операция 'перевод' не найдена")
 
     db.add_all([
-        models.БанковскаяОперация(id_счета=sender.id_счета, сумма=-amount, id_операции=operation.id_операции),
-        models.БанковскаяОперация(id_счета=recipient.id_счета, сумма=amount, id_операции=operation.id_операции)
+        models.БанковскаяОперация(id_счета=sender.id_счета, сумма=-amount, id_операции=operation.id_операции, дата_операции=datetime.utcnow()),
+        models.БанковскаяОперация(id_счета=recipient.id_счета, сумма=amount, id_операции=operation.id_операции, дата_операции=datetime.utcnow())
     ])
 
     db.commit()
@@ -319,7 +357,8 @@ def cash_withdrawal(id_account: int, amount: int, db):
     db.add(models.БанковскаяОперация(
         id_счета=account.id_счета,
         сумма=-amount,
-        id_операции=operation.id_операции
+        id_операции=operation.id_операции,
+        дата_операции=datetime.utcnow()
     ))
 
     db.commit()
@@ -346,7 +385,8 @@ def cash_replenishment(id_account: int, amount: int, db):
     db.add(models.БанковскаяОперация(
         id_счета=account.id_счета,
         сумма=amount,
-        id_операции=operation.id_операции
+        id_операции=operation.id_операции,
+        дата_операции=datetime.utcnow()
     ))
 
     db.commit()
