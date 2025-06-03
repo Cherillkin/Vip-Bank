@@ -21,6 +21,82 @@ class РольOut(РольBase):
     }
 
 
+class ТипСчетаBase(BaseModel):
+    название_типа_счета: str
+
+class ТипСчетаOut(ТипСчетаBase):
+    id_типа_счета: int
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class ПроцентнаяСтавкаBase(BaseModel):
+    процентная_ставка: int
+    id_вида_счета: int
+    дата_изменения: datetime
+
+class ПроцентнаяСтавкаOut(ПроцентнаяСтавкаBase):
+    id_процентной_ставки: int
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class ВидСчетаBase(BaseModel):
+    название_вида_счета: str
+    id_типа_счета: int
+
+class ВидСчетаOut(ВидСчетаBase):
+    id_вида_счета: int
+    тип: ТипСчетаOut
+    процентные_ставки: List[ПроцентнаяСтавкаOut] = []
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class ОперацияBase(BaseModel):
+    название_операции: str
+
+class ОперацияOut(ОперацияBase):
+    id_операции: int
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class БанковскаяОперацияBase(BaseModel):
+    сумма: int
+    id_счета: int
+    id_операции: int
+
+class БанковскаяОперацияOut(БанковскаяОперацияBase):
+    id_банковской_операции: int
+    операция: ОперацияOut
+    дата_операции: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class СчетBase(BaseModel):
+    баланс: int
+    id_клиента: int
+    id_филиала: int
+    id_вида_счета: int
+    дата_открытия: datetime
+    id_счета_источника: Optional[int] = None
+
+class СчетOut(СчетBase):
+    id_счета: int
+    вид: ВидСчетаOut
+    операции: List[БанковскаяОперацияOut]
+
+    model_config = {
+        "from_attributes": True
+    }
+
 class КлиентBase(BaseModel):
     email: Optional[str]
     фамилия: Optional[str]
@@ -53,44 +129,7 @@ class КлиентOut(КлиентBase):
     дата_создания: Optional[datetime] = None
     дата_обновления: Optional[datetime] = None
     роль: РольOut
-
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class ТипСчетаBase(BaseModel):
-    название_типа_счета: str
-
-class ТипСчетаOut(ТипСчетаBase):
-    id_типа_счета: int
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class ВидСчетаBase(BaseModel):
-    название_вида_счета: str
-    id_типа_счета: int
-
-class ВидСчетаOut(ВидСчетаBase):
-    id_вида_счета: int
-    тип: ТипСчетаOut
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class ПроцентнаяСтавкаBase(BaseModel):
-    процентная_ставка: int
-    id_вида_счета: int
-    дата_изменения: datetime
-
-class ПроцентнаяСтавкаOut(ПроцентнаяСтавкаBase):
-    id_процентной_ставки: int
+    счета: List[СчетOut]
 
     model_config = {
         "from_attributes": True
@@ -102,44 +141,6 @@ class ФилиалBase(BaseModel):
     корпус_филиала: int
 
 class ФилиалOut(ФилиалBase):
-
-    model_config = {
-        "from_attributes": True
-    }
-
-class СчетBase(BaseModel):
-    баланс: int
-    id_клиента: int
-    id_филиала: int
-    id_вида_счета: int
-    дата_открытия: datetime
-
-class СчетOut(СчетBase):
-    id_счета: int
-
-    model_config = {
-        "from_attributes": True
-    }
-
-class ОперацияBase(BaseModel):
-    название_операции: str
-
-class ОперацияOut(ОперацияBase):
-    id_операции: int
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class БанковскаяОперацияBase(BaseModel):
-    сумма: int
-    id_счета: int
-    id_операции: int
-
-class БанковскаяОперацияOut(БанковскаяОперацияBase):
-    id_банковской_операции: int
-    операция: ОперацияOut
 
     model_config = {
         "from_attributes": True

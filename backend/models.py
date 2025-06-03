@@ -22,7 +22,6 @@ class Клиент(Base):
 
     роль = relationship("Роль", back_populates="клиенты")
     счета = relationship("Счет", back_populates="клиент")
-    # Удалена строка: инвестиции = relationship("Инвестиции", back_populates="клиент")
 
 
 class Роль(Base):

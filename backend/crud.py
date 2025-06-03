@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func
@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from dotenv import load_dotenv
 from fastapi import HTTPException, Depends
 from sqlalchemy.types import TypeDecorator, LargeBinary
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
 from . import schemas, database
 from . import models
@@ -59,6 +59,39 @@ def validate_password(password: str):
         raise HTTPException(status_code=400, detail="Пароль должен содержать хотя бы одну цифру.")
     if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
         raise HTTPException(status_code=400, detail="Пароль должен содержать хотя бы один специальный символ.")
+
+def create_admin_or_operator(db: Session, client: schemas.КлиентCreate):
+    existing_client = db.query(models.Клиент).filter(models.Клиент.email == client.email).first()
+    if existing_client:
+        raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует.")
+
+    role = db.query(models.Роль).filter(models.Роль.id_роли == client.id_роли).first()
+    if not role:
+        raise HTTPException(status_code=400, detail="Роль не найдена.")
+
+    validate_password(client.пароль)
+    hashed_password = hash_password(client.пароль)
+
+    try:
+        db_client = models.Клиент(
+            email=client.email,
+            фамилия=client.фамилия,
+            имя=client.имя,
+            отчество=client.отчество,
+            пароль=hashed_password,
+            дата_создания=datetime.utcnow(),
+            дата_обновление=datetime.utcnow(),
+            роль=role
+        )
+
+        db.add(db_client)
+        db.commit()
+        db.refresh(db_client)
+        return db_client
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании пользователя: {str(e)}")
 
 def create_client(db: Session, client: schemas.КлиентCreate):
     existing_client = db.query(models.Клиент).filter(models.Клиент.email == client.email).first()
@@ -163,29 +196,91 @@ def create_branch(db: Session, branch: schemas.ФилиалOut):
     return db_branch
 
 def create_account(db: Session, account: schemas.СчетBase):
-    id_client = db.query(models.Клиент).filter(models.Клиент.id_клиента == account.id_клиента).first()
-    if not id_client:
+    # Получаем объекты клиента, филиала и вида счёта
+    client = db.query(models.Клиент).filter(models.Клиент.id_клиента == account.id_клиента).first()
+    if not client:
         raise HTTPException(status_code=400, detail=f"Клиент с ID {account.id_клиента} не найден.")
 
-    id_branch = db.query(models.Филиал).filter(models.Филиал.id_филиала == account.id_филиала).first()
-    if not id_branch:
+    branch = db.query(models.Филиал).filter(models.Филиал.id_филиала == account.id_филиала).first()
+    if not branch:
         raise HTTPException(status_code=400, detail=f"Филиал с ID {account.id_филиала} не найден.")
 
-    id_account_from_type = db.query(models.ВидСчета).filter(models.ВидСчета.id_вида_счета == account.id_вида_счета).first()
-    if not id_account_from_type:
+    account_type = db.query(models.ВидСчета).filter(models.ВидСчета.id_вида_счета == account.id_вида_счета).first()
+    if not account_type:
         raise HTTPException(status_code=400, detail=f"Вид счета с ID {account.id_вида_счета} не найден.")
 
-    db_account = models.Счет(
+    type_id = account_type.id_типа_счета
+
+    # 1. Проверка: запрещаем второй кредит
+    if type_id == 1:
+        existing_credit = (
+            db.query(models.Счет)
+            .filter(
+                models.Счет.id_клиента == account.id_клиента,
+                models.Счет.вид.has(id_типа_счета=1)
+            )
+            .first()
+        )
+        if existing_credit:
+            raise HTTPException(status_code=400, detail="Нельзя открыть более одного кредитного счёта.")
+
+    # 2. Вклад: нужна сумма и счёт, с которого она переводится
+    if type_id == 2:
+        if account.id_счета_источника is None:
+            raise HTTPException(status_code=400, detail="Для открытия вклада укажите счёт-источник средств.")
+
+        source_account = db.query(models.Счет).filter(models.Счет.id_счета == account.id_счета_источника).first()
+
+        if not source_account or source_account.id_клиента != account.id_клиента:
+            raise HTTPException(status_code=400, detail="Счёт-источник не найден или не принадлежит клиенту.")
+
+        source_type = source_account.вид.id_типа_счета
+        if source_type in [1, 2, 3]:
+            raise HTTPException(status_code=400, detail="Нельзя перевести средства с выбранного счёта.")
+
+        if source_account.баланс < account.баланс:
+            raise HTTPException(status_code=400, detail="Недостаточно средств на счёте-источнике.")
+
+        source_account.баланс -= account.баланс
+
+    if type_id == 3:  # Инвестиционный счет
+        if account.id_счета_источника is None:
+            raise HTTPException(status_code=400,
+                                detail="Для открытия инвестиционного счета укажите счёт-источник средств.")
+
+        source_account = db.query(models.Счет).filter(models.Счет.id_счета == account.id_счета_источника).first()
+        if not source_account or source_account.id_клиента != account.id_клиента:
+            raise HTTPException(status_code=400, detail="Счёт-источник не найден или не принадлежит клиенту.")
+
+        source_type = source_account.вид.id_типа_счета
+        if source_type in [1, 2, 3]:
+            raise HTTPException(status_code=400, detail="Нельзя перевести средства с выбранного счёта.")
+
+        if source_account.баланс < account.баланс:
+            raise HTTPException(status_code=400, detail="Недостаточно средств на счёте-источнике.")
+
+        source_account.баланс -= account.баланс
+
+    new_account = models.Счет(
         баланс=account.баланс,
         id_клиента=account.id_клиента,
         id_филиала=account.id_филиала,
         id_вида_счета=account.id_вида_счета,
-        дата_открытия=datetime.utcnow()
+        дата_открытия=datetime.utcnow(),
     )
-    db.add(db_account)
+
+    db.add(new_account)
     db.commit()
-    db.refresh(db_account)
-    return db_account
+    db.refresh(new_account)
+
+    return new_account
+
+def get_accounts_by_client_id(db: Session, client_id: int):
+    return db.query(models.Счет).options(
+        joinedload(models.Счет.вид).joinedload(models.ВидСчета.тип),
+        joinedload(models.Счет.вид).joinedload(models.ВидСчета.процентные_ставки),
+        joinedload(models.Счет.операции).joinedload(models.БанковскаяОперация.операция)
+    ).filter(models.Счет.id_клиента == client_id).all()
 
 def get_account_by_id(db: Session, account_id: int):
     db_account = db.query(models.Счет).filter(models.Счет.id_счета == account_id).first()
@@ -215,6 +310,10 @@ def get_card_operations_by_account(
 
     return operations
 
+def get_all_operations_by_account(db: Session, account_id: int):
+    return db.query(models.БанковскаяОперация).filter(
+        models.БанковскаяОперация.id_счета == account_id
+    ).all()
 
 def create_account_from_type(db: Session, account_from_type: schemas.ВидСчетаBase):
     account_type = db.query(models.ТипСчета).filter(
@@ -282,7 +381,10 @@ def get_account_type(db: Session):
     return db.query(models.ТипСчета).all()
 
 def get_account_from_type(db: Session):
-    return db.query(models.ВидСчета).all()
+    return db.query(models.ВидСчета).options(
+        joinedload(models.ВидСчета.тип),
+        joinedload(models.ВидСчета.процентные_ставки)
+    ).all()
 
 def get_interest_rates(db: Session):
     return db.query(models.ПроцентнаяСтавка).all()
@@ -296,12 +398,14 @@ def get_id_interest_rate(db: Session, id_процентной_ставки: int)
 def get_all_type_invest(db: Session):
     return db.query(models.ТипИнвестиций).all()
 
-def update_дата_изменения(db: Session, id_процентной_ставки: int):
+def update_interest_rate(db: Session, id_процентной_ставки: int, interest_rate: schemas.ПроцентнаяСтавкаBase):
     db_rate = db.query(models.ПроцентнаяСтавка).filter(models.ПроцентнаяСтавка.id_процентной_ставки == id_процентной_ставки).first()
-    if db_rate:
-        db_rate.дата_изменения = datetime.utcnow()
-        db.commit()
-        db.refresh(db_rate)
+    if db_rate is None:
+        return None
+    db_rate.процентная_ставка = interest_rate.процентная_ставка
+    db_rate.дата_изменения = datetime.utcnow()
+    db.commit()
+    db.refresh(db_rate)
     return db_rate
 
 def is_card_account(account):
@@ -476,6 +580,18 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
 
     return TokenData(email=email, id=db_user.id_клиента, role=db_user.id_роли)
+
+def check_operator_access_hours(current_user=Depends(get_current_user)):
+    if current_user.role == 3:
+        now = datetime.now().time()
+        start = time(9, 0)
+        end = time(22, 0)
+        if not (start <= now <= end):
+            raise HTTPException(
+                status_code=403,
+                detail="Доступ разрешён только с 09:00 до 18:00 для операторов"
+            )
+    return current_user
 
 def set_rls_context(db: Session, user_id: int):
     db.execute(text(f"SET app.current_client_id = {user_id}"))

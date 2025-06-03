@@ -1,10 +1,10 @@
 from datetime import timedelta, date
 
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from . import schemas, crud, database, models
-from .crud import CRUDClient, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
+from .crud import CRUDClient, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user, check_operator_access_hours
 from .schemas import TokenData
 from .utils.backup import backup_database
 
@@ -16,6 +16,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+@router.post("/admin/create-user", response_model=schemas.КлиентOut)
+def admin_create_user(
+    client: schemas.КлиентCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    if current_user.role != 2:
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    if client.id_роли not in [2, 3]:
+        raise HTTPException(status_code=400, detail="Можно создавать только админов и операторов")
+    return crud.create_admin_or_operator(db, client)
 
 @router.post("/clients/", response_model=schemas.КлиентOut)
 def create_client_route(client: schemas.КлиентCreate, db: Session = Depends(get_db)):
@@ -42,7 +54,8 @@ def login(credentials: schemas.КлиентLogin, db: Session = Depends(get_db))
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "client_id": client.id_клиента
+        "client_id": client.id_клиента,
+        "role_id": client.id_роли
     }
 
 @router.post("/roles/", response_model=schemas.РольOut)
@@ -97,9 +110,9 @@ def replenishment_cash(id_account: int, amount: int, db: Session = Depends(get_d
 # def calculate_yield(briefcase_id: int, db: Session = Depends(get_db)):
 #     return crud.calculate_and_create_yield(db, briefcase_id)
 
-@router.put("/interest_rate/{id_interest_rate}/update_at", response_model=schemas.ПроцентнаяСтавкаOut)
-def update_interest_rate_at(id_interest_rate: int, db: Session = Depends(get_db)):
-    db_rate = crud.update_дата_изменения(db=db, id_процентной_ставки=id_interest_rate)
+@router.put("/interest_rate/{id_interest_rate}", response_model=schemas.ПроцентнаяСтавкаOut)
+def update_interest_rate(id_interest_rate: int, updated_rate: schemas.ПроцентнаяСтавкаBase, db: Session = Depends(get_db)):
+    db_rate = crud.update_interest_rate(db=db, id_процентной_ставки=id_interest_rate, interest_rate=updated_rate)
     if db_rate is None:
         raise HTTPException(status_code=404, detail="Процентная ставка не найдена")
     return db_rate
@@ -107,6 +120,33 @@ def update_interest_rate_at(id_interest_rate: int, db: Session = Depends(get_db)
 @router.delete("/account_types/{account_type_id}", response_model=dict)
 def delete_account_from_type(id_account_from_type: int, db: Session = Depends(get_db)):
     return crud.delete_account_type_by_id(db=db, id_вида_счета=id_account_from_type)
+
+@router.delete("/account/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+def close_account(account_id: int, client_id: int, db: Session = Depends(get_db)):
+    account = db.query(models.Счет).filter(
+        models.Счет.id_счета == account_id,
+        models.Счет.id_клиента == client_id
+    ).first()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Счет не найден")
+
+    if account.баланс < 0:
+        raise HTTPException(status_code=400, detail="Баланс отрицательный, счет нельзя закрыть")
+    elif account.баланс > 0:
+        card_account = db.query(models.Счет).join(models.ВидСчета).filter(
+            models.Счет.id_клиента == client_id,
+            models.ВидСчета.id_типа_счета == 4
+        ).first()
+
+        if not card_account:
+            raise HTTPException(status_code=400, detail="Пластиковая карта клиента не найдена")
+
+        card_account.баланс += account.баланс
+        account.баланс = 0
+
+    db.delete(account)
+    db.commit()
 
 @router.get("/clients/{client_id}", response_model=schemas.КлиентOut)
 def read_client(
@@ -121,6 +161,16 @@ def read_client(
     if db_client is None:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     return db_client
+
+@router.get("/clients", response_model=List[schemas.КлиентOut])
+def get_clients(
+    db: Session = Depends(get_db),
+    current_user=Depends(check_operator_access_hours)
+):
+    if current_user.role not in [2, 3]:  # 2 — админ, 3 — оператор
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    return db.query(models.Клиент).all()
+
 
 @router.get("/roles", response_model=list[schemas.РольOut])
 def get_all_roles(db: Session = Depends(get_db)):
@@ -165,6 +215,20 @@ def get_interest_rate_by_id(id_interest_rate: int, db: Session = Depends(get_db)
 def get_account_by_id(id_account: int, db: Session = Depends(get_db)):
     return crud.get_account_by_id(db, id_account)
 
+@router.get("/accounts/client/{client_id}", response_model=List[schemas.СчетOut])
+def get_accounts_by_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.TokenData = Depends(get_current_user)
+):
+    if current_user.role != 2 and current_user.id != client_id:
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
+
+    accounts = crud.get_accounts_by_client_id(db, client_id)
+    if not accounts:
+        raise HTTPException(status_code=404, detail="Счета не найдены")
+    return accounts
+
 @router.get("/accounts/{account_id}/card-operations/", response_model=List[schemas.БанковскаяОперацияOut])
 def get_card_operations_by_account(
     account_id: int,
@@ -180,6 +244,31 @@ def get_card_operations_by_account(
 
     operations = crud.get_card_operations_by_account(db, account_id, start_date, end_date)
     return operations
+
+@router.get("/operations/by-account/{account_id}", response_model=List[schemas.БанковскаяОперацияOut])
+def get_all_operations_by_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.TokenData = Depends(get_current_user)
+):
+    account = db.query(models.Счет).filter(models.Счет.id_счета == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Счёт не найден")
+
+    if account.id_клиента != current_user.id:
+        raise HTTPException(status_code=403, detail="Доступ к счёту запрещён")
+
+    operations = crud.get_all_operations_by_account(db, account_id)
+    return operations
+
+@router.get("/operations/history", response_model=List[schemas.БанковскаяОперацияOut])
+def get_all_operations(
+    db: Session = Depends(get_db),
+    current_user=Depends(check_operator_access_hours)
+):
+    if current_user.role not in [2, 3]:
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    return db.query(models.БанковскаяОперация).all()
 
 
 @router.get("/types_invest", response_model=List[schemas.ТипИнвестицийOut])
