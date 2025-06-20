@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, time
 
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import func
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from dotenv import load_dotenv
@@ -196,7 +195,9 @@ def create_branch(db: Session, branch: schemas.ФилиалOut):
     return db_branch
 
 def create_account(db: Session, account: schemas.СчетBase):
-    # Получаем объекты клиента, филиала и вида счёта
+    if account.баланс < 0:
+        raise HTTPException(status_code=400, detail="Баланс не может быть отрицательным.")
+
     client = db.query(models.Клиент).filter(models.Клиент.id_клиента == account.id_клиента).first()
     if not client:
         raise HTTPException(status_code=400, detail=f"Клиент с ID {account.id_клиента} не найден.")
@@ -211,7 +212,6 @@ def create_account(db: Session, account: schemas.СчетBase):
 
     type_id = account_type.id_типа_счета
 
-    # 1. Проверка: запрещаем второй кредит
     if type_id == 1:
         existing_credit = (
             db.query(models.Счет)
@@ -224,7 +224,6 @@ def create_account(db: Session, account: schemas.СчетBase):
         if existing_credit:
             raise HTTPException(status_code=400, detail="Нельзя открыть более одного кредитного счёта.")
 
-    # 2. Вклад: нужна сумма и счёт, с которого она переводится
     if type_id == 2:
         if account.id_счета_источника is None:
             raise HTTPException(status_code=400, detail="Для открытия вклада укажите счёт-источник средств.")
@@ -243,7 +242,6 @@ def create_account(db: Session, account: schemas.СчетBase):
 
         source_account.баланс -= account.баланс
 
-    if type_id == 3:  # Инвестиционный счет
         if account.id_счета_источника is None:
             raise HTTPException(status_code=400,
                                 detail="Для открытия инвестиционного счета укажите счёт-источник средств.")
@@ -412,6 +410,9 @@ def is_card_account(account):
     return account.вид.тип.id_типа_счета == 4
 
 def transfer_funds(id_sender_account: int, id_recipient_account: int, amount: int, db):
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма перевода должна быть положительной.")
+
     sender = db.query(models.Счет).filter(models.Счет.id_счета == id_sender_account).first()
     recipient = db.query(models.Счет).filter(models.Счет.id_счета == id_recipient_account).first()
 
@@ -432,8 +433,10 @@ def transfer_funds(id_sender_account: int, id_recipient_account: int, amount: in
         raise HTTPException(status_code=404, detail="Операция 'перевод' не найдена")
 
     db.add_all([
-        models.БанковскаяОперация(id_счета=sender.id_счета, сумма=-amount, id_операции=operation.id_операции, дата_операции=datetime.utcnow()),
-        models.БанковскаяОперация(id_счета=recipient.id_счета, сумма=amount, id_операции=operation.id_операции, дата_операции=datetime.utcnow())
+        models.БанковскаяОперация(id_счета=sender.id_счета, сумма=-amount,
+                                  id_операции=operation.id_операции, дата_операции=datetime.utcnow()),
+        models.БанковскаяОперация(id_счета=recipient.id_счета, сумма=amount,
+                                  id_операции=operation.id_операции, дата_операции=datetime.utcnow())
     ])
 
     db.commit()
@@ -584,8 +587,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 def check_operator_access_hours(current_user=Depends(get_current_user)):
     if current_user.role == 3:
         now = datetime.now().time()
-        start = time(9, 0)
-        end = time(22, 0)
+        start = time(15, 0)
+        end = time(18, 0)
         if not (start <= now <= end):
             raise HTTPException(
                 status_code=403,

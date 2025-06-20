@@ -122,37 +122,37 @@ export default function Profile() {
     }
   };
 
-  const fetchCardOperationsForPeriod = async (accountId) => {
-    if (!dateRange.start || !dateRange.end) {
-      alert("Укажите обе даты для фильтрации.");
-      return;
-    }
+  // const fetchCardOperationsForPeriod = async (accountId) => {
+  //   if (!dateRange.start || !dateRange.end) {
+  //     alert("Укажите обе даты для фильтрации.");
+  //     return;
+  //   }
 
-    try {
-      const response = await axios.get(
-        `http://localhost:8000/accounts/${accountId}/card-operations/`,
-        {
-          params: {
-            start_date: dateRange.start,
-            end_date: dateRange.end,
-          },
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      setCardOperations((prev) => ({
-        ...prev,
-        [accountId]: response.data,
-      }));
-    } catch (error) {
-      console.error(
-        `Ошибка при загрузке операций по счёту ${accountId}`,
-        error
-      );
-      alert("Не удалось загрузить операции.");
-    }
-  };
+  //   try {
+  //     const response = await axios.get(
+  //       `http://localhost:8000/accounts/${accountId}/card-operations/`,
+  //       {
+  //         params: {
+  //           start_date: dateRange.start,
+  //           end_date: dateRange.end,
+  //         },
+  //         headers: {
+  //           Authorization: `Bearer ${token}`,
+  //         },
+  //       }
+  //     );
+  //     setCardOperations((prev) => ({
+  //       ...prev,
+  //       [accountId]: response.data,
+  //     }));
+  //   } catch (error) {
+  //     console.error(
+  //       `Ошибка при загрузке операций по счёту ${accountId}`,
+  //       error
+  //     );
+  //     alert("Не удалось загрузить операции.");
+  //   }
+  // };
 
   if (loading) {
     return <div className="container">Загрузка данных...</div>;
@@ -194,7 +194,7 @@ export default function Profile() {
                 <tr>
                   <th>Номер счёта</th>
                   <th>Баланс</th>
-                  <th>Тип счёта</th>
+                  <th>Наименование</th>
                   <th>Дата открытия</th>
                   <th>Действия</th>
                 </tr>

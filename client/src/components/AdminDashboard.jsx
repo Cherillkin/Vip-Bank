@@ -232,7 +232,7 @@ export default function AdminDashboard() {
         <div className="card">
           <h3>Роли</h3>
           <button className="action-button" onClick={createRole}>
-            Создать роль
+            Добавить роль
           </button>
           <ul>
             {roles.map((r) => (
@@ -241,11 +241,11 @@ export default function AdminDashboard() {
           </ul>
         </div>
 
-        {/* Пользователи */}
+        {/* Сотрудники */}
         <div className="card">
           <h3>Пользователи (админы/операторы)</h3>
           <button className="action-button" onClick={createUser}>
-            Создать пользователя
+            Добавить пользователя
           </button>
           <ul>
             {users
@@ -278,7 +278,7 @@ export default function AdminDashboard() {
               }
             }}
           >
-            Создать улицу
+            Добавить улицу
           </button>
           <ul>
             {streets.map((s) => (
@@ -307,7 +307,7 @@ export default function AdminDashboard() {
               }
             }}
           >
-            Создать филиал
+            Добавить филиал
           </button>
           <ul>
             {branches.map((b) => {

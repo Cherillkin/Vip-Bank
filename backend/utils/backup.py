@@ -14,7 +14,7 @@ def backup_database(
     output_path = os.path.join(output_dir, filename)
 
     try:
-        pg_dump_path = r"C:\Program Files\PostgreSQL\17\bin\pg_dump.exe"  # <-- Укажи свой путь
+        pg_dump_path = r"C:\Program Files\PostgreSQL\17\bin\pg_dump.exe"
 
         result = subprocess.run(
             [
@@ -32,3 +32,4 @@ def backup_database(
         return {"status": "success", "path": output_path}
     except subprocess.CalledProcessError as e:
         return {"status": "error", "message": str(e)}
+

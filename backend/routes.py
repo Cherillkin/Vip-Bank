@@ -167,7 +167,7 @@ def get_clients(
     db: Session = Depends(get_db),
     current_user=Depends(check_operator_access_hours)
 ):
-    if current_user.role not in [2, 3]:  # 2 — админ, 3 — оператор
+    if current_user.role not in [2, 3]:
         raise HTTPException(status_code=403, detail="Нет доступа")
     return db.query(models.Клиент).all()
 
