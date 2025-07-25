@@ -112,6 +112,36 @@ export default function AdminDashboard() {
     }
   }
 
+  async function deleteClient(id_клиента) {
+    const client = users.find((u) => u.id_клиента === id_клиента);
+    if (!client) {
+      setMessage("Клиент не найден");
+      return;
+    }
+    if (client.счета && client.счета.length > 0) {
+      setMessage("Нельзя удалить клиента с существующими счетами");
+      return;
+    }
+
+    if (!window.confirm(`Удалить клиента ${client.фамилия} ${client.имя}?`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/clients/${id_клиента}`);
+      setMessage("Клиент удалён");
+
+      // Обновляем список клиентов
+      const usersRes = await api.get("/clients");
+      setUsers(usersRes.data);
+    } catch (error) {
+      setMessage(
+        "Ошибка при удалении клиента: " +
+          (error.response?.data?.detail || error.message)
+      );
+    }
+  }
+
   const handleBackup = async () => {
     try {
       const response = await api.post("/backup");
@@ -185,6 +215,7 @@ export default function AdminDashboard() {
                 <th>Email</th>
                 <th>Роль</th>
                 <th>Счета</th>
+                <th>Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -207,6 +238,11 @@ export default function AdminDashboard() {
                         <li>Нет счетов</li>
                       )}
                     </ul>
+                  </td>
+                  <td>
+                    <button onClick={() => deleteClient(u.id_клиента)}>
+                      Удалить
+                    </button>
                   </td>
                 </tr>
               ))}

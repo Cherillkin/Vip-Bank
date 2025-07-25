@@ -9,7 +9,6 @@ from sqlalchemy.types import TypeDecorator, LargeBinary
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
 from . import schemas, database
-from . import models
 import os
 import re
 import bcrypt
@@ -17,6 +16,16 @@ import bcrypt
 import logging
 
 from jose import jwt, JWTError
+
+from .models.user import Клиент, Роль
+from .models.street import Улица
+from .models.branch import Филиал
+from .models.account import Счет
+from .models.account_from_type import ВидСчета
+from .models.account_type import ТипСчета
+from .models.interest_rage import ПроцентнаяСтавка
+from .models.bank_operation import БанковскаяОперация
+from .models.operation import Операция
 
 from .schemas import TokenData
 
@@ -60,11 +69,11 @@ def validate_password(password: str):
         raise HTTPException(status_code=400, detail="Пароль должен содержать хотя бы один специальный символ.")
 
 def create_admin_or_operator(db: Session, client: schemas.КлиентCreate):
-    existing_client = db.query(models.Клиент).filter(models.Клиент.email == client.email).first()
+    existing_client = db.query(Клиент).filter(Клиент.email == client.email).first()
     if existing_client:
         raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует.")
 
-    role = db.query(models.Роль).filter(models.Роль.id_роли == client.id_роли).first()
+    role = db.query(Роль).filter(Роль.id_роли == client.id_роли).first()
     if not role:
         raise HTTPException(status_code=400, detail="Роль не найдена.")
 
@@ -72,7 +81,7 @@ def create_admin_or_operator(db: Session, client: schemas.КлиентCreate):
     hashed_password = hash_password(client.пароль)
 
     try:
-        db_client = models.Клиент(
+        db_client = Клиент(
             email=client.email,
             фамилия=client.фамилия,
             имя=client.имя,
@@ -93,11 +102,11 @@ def create_admin_or_operator(db: Session, client: schemas.КлиентCreate):
         raise HTTPException(status_code=500, detail=f"Ошибка при создании пользователя: {str(e)}")
 
 def create_client(db: Session, client: schemas.КлиентCreate):
-    existing_client = db.query(models.Клиент).filter(models.Клиент.email == client.email).first()
+    existing_client = db.query(Клиент).filter(Клиент.email == client.email).first()
     if existing_client:
         raise HTTPException(status_code=400, detail="Клиент с таким email уже существует.")
 
-    role = db.query(models.Роль).filter(models.Роль.id_роли == client.id_роли).first()
+    role = db.query(Роль).filter(Роль.id_роли == client.id_роли).first()
     if not role:
         raise HTTPException(status_code=400, detail=f"Роль с ID {client.id_роли} не найдена.")
 
@@ -106,7 +115,7 @@ def create_client(db: Session, client: schemas.КлиентCreate):
     hashed_password = hash_password(client.пароль)
 
     try:
-        db_client = models.Клиент(
+        db_client = Клиент(
             email=client.email,
             фамилия=client.фамилия,
             имя=client.имя,
@@ -147,7 +156,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def authenticate_client(db: Session, email: str, password: str):
-    client = db.query(models.Клиент).filter(models.Клиент.email == email).first()
+    client = db.query(Клиент).filter(Клиент.email == email).first()
     if not client:
         return None
     if not verify_password(password, client.пароль):
@@ -164,25 +173,25 @@ def authenticate_client(db: Session, email: str, password: str):
     return client
 
 def create_role(db: Session, role: schemas.RoleCreate):
-    db_role = models.Роль(роль=role.роль)
+    db_role = Роль(роль=role.роль)
     db.add(db_role)
     db.commit()
     db.refresh(db_role)
     return db_role
 
 def create_street(db: Session, street: schemas.УлицаOut):
-    db_street = models.Улица(название_улицы=street.название_улицы)
+    db_street = Улица(название_улицы=street.название_улицы)
     db.add(db_street)
     db.commit()
     db.refresh(db_street)
     return db_street
 
 def create_branch(db: Session, branch: schemas.ФилиалOut):
-    street = db.query(models.Улица).filter(models.Улица.id_улицы == branch.улица_филиала).first()
+    street = db.query(Улица).filter(Улица.id_улицы == branch.улица_филиала).first()
     if not street:
         raise HTTPException(status_code=400, detail=f"Улица с ID {branch.улица_филиала} не найдена.")
 
-    db_branch = models.Филиал(
+    db_branch = Филиал(
         улица_филиала=branch.улица_филиала,
         дом_филиала=branch.дом_филиала,
         корпус_филиала=branch.корпус_филиала
@@ -198,15 +207,15 @@ def create_account(db: Session, account: schemas.СчетBase):
     if account.баланс < 0:
         raise HTTPException(status_code=400, detail="Баланс не может быть отрицательным.")
 
-    client = db.query(models.Клиент).filter(models.Клиент.id_клиента == account.id_клиента).first()
+    client = db.query(Клиент).filter(Клиент.id_клиента == account.id_клиента).first()
     if not client:
         raise HTTPException(status_code=400, detail=f"Клиент с ID {account.id_клиента} не найден.")
 
-    branch = db.query(models.Филиал).filter(models.Филиал.id_филиала == account.id_филиала).first()
+    branch = db.query(Филиал).filter(Филиал.id_филиала == account.id_филиала).first()
     if not branch:
         raise HTTPException(status_code=400, detail=f"Филиал с ID {account.id_филиала} не найден.")
 
-    account_type = db.query(models.ВидСчета).filter(models.ВидСчета.id_вида_счета == account.id_вида_счета).first()
+    account_type = db.query(ВидСчета).filter(ВидСчета.id_вида_счета == account.id_вида_счета).first()
     if not account_type:
         raise HTTPException(status_code=400, detail=f"Вид счета с ID {account.id_вида_счета} не найден.")
 
@@ -214,10 +223,10 @@ def create_account(db: Session, account: schemas.СчетBase):
 
     if type_id == 1:
         existing_credit = (
-            db.query(models.Счет)
+            db.query(Счет)
             .filter(
-                models.Счет.id_клиента == account.id_клиента,
-                models.Счет.вид.has(id_типа_счета=1)
+                Счет.id_клиента == account.id_клиента,
+                Счет.вид.has(id_типа_счета=1)
             )
             .first()
         )
@@ -228,7 +237,7 @@ def create_account(db: Session, account: schemas.СчетBase):
         if account.id_счета_источника is None:
             raise HTTPException(status_code=400, detail="Для открытия вклада укажите счёт-источник средств.")
 
-        source_account = db.query(models.Счет).filter(models.Счет.id_счета == account.id_счета_источника).first()
+        source_account = db.query(Счет).filter(Счет.id_счета == account.id_счета_источника).first()
 
         if not source_account or source_account.id_клиента != account.id_клиента:
             raise HTTPException(status_code=400, detail="Счёт-источник не найден или не принадлежит клиенту.")
@@ -246,7 +255,7 @@ def create_account(db: Session, account: schemas.СчетBase):
             raise HTTPException(status_code=400,
                                 detail="Для открытия инвестиционного счета укажите счёт-источник средств.")
 
-        source_account = db.query(models.Счет).filter(models.Счет.id_счета == account.id_счета_источника).first()
+        source_account = db.query(Счет).filter(Счет.id_счета == account.id_счета_источника).first()
         if not source_account or source_account.id_клиента != account.id_клиента:
             raise HTTPException(status_code=400, detail="Счёт-источник не найден или не принадлежит клиенту.")
 
@@ -259,7 +268,7 @@ def create_account(db: Session, account: schemas.СчетBase):
 
         source_account.баланс -= account.баланс
 
-    new_account = models.Счет(
+    new_account = Счет(
         баланс=account.баланс,
         id_клиента=account.id_клиента,
         id_филиала=account.id_филиала,
@@ -274,14 +283,14 @@ def create_account(db: Session, account: schemas.СчетBase):
     return new_account
 
 def get_accounts_by_client_id(db: Session, client_id: int):
-    return db.query(models.Счет).options(
-        joinedload(models.Счет.вид).joinedload(models.ВидСчета.тип),
-        joinedload(models.Счет.вид).joinedload(models.ВидСчета.процентные_ставки),
-        joinedload(models.Счет.операции).joinedload(models.БанковскаяОперация.операция)
-    ).filter(models.Счет.id_клиента == client_id).all()
+    return db.query(Счет).options(
+        joinedload(Счет.вид).joinedload(ВидСчета.тип),
+        joinedload(Счет.вид).joinedload(ВидСчета.процентные_ставки),
+        joinedload(Счет.операции).joinedload(БанковскаяОперация.операция)
+    ).filter(Счет.id_клиента == client_id).all()
 
 def get_account_by_id(db: Session, account_id: int):
-    db_account = db.query(models.Счет).filter(models.Счет.id_счета == account_id).first()
+    db_account = db.query(Счет).filter(Счет.id_счета == account_id).first()
     if not db_account:
         raise HTTPException(status_code=404, detail="Счёт не найден")
     return db_account
@@ -292,36 +301,36 @@ def get_card_operations_by_account(
     start_date: datetime,
     end_date: datetime
 ):
-    account = db.query(models.Счет).join(models.ВидСчета).join(models.ТипСчета).filter(
-        models.Счет.id_счета == account_id,
-        models.ТипСчета.id_типа_счета == 4
+    account = db.query(Счет).join(ВидСчета).join(ТипСчета).filter(
+        Счет.id_счета == account_id,
+        ТипСчета.id_типа_счета == 4
     ).first()
 
     if not account:
         raise HTTPException(status_code=404, detail="Карта с таким ID не найдена или не является карточной.")
 
-    operations = db.query(models.БанковскаяОперация).filter(
-        models.БанковскаяОперация.id_счета == account_id,
-        models.БанковскаяОперация.дата_операции >= start_date,
-        models.БанковскаяОперация.дата_операции <= end_date
+    operations = db.query(БанковскаяОперация).filter(
+        БанковскаяОперация.id_счета == account_id,
+        БанковскаяОперация.дата_операции >= start_date,
+        БанковскаяОперация.дата_операции <= end_date
     ).all()
 
     return operations
 
 def get_all_operations_by_account(db: Session, account_id: int):
-    return db.query(models.БанковскаяОперация).filter(
-        models.БанковскаяОперация.id_счета == account_id
+    return db.query(БанковскаяОперация).filter(
+        БанковскаяОперация.id_счета == account_id
     ).all()
 
 def create_account_from_type(db: Session, account_from_type: schemas.ВидСчетаBase):
-    account_type = db.query(models.ТипСчета).filter(
-        models.ТипСчета.id_типа_счета == account_from_type.id_типа_счета
+    account_type = db.query(ТипСчета).filter(
+        ТипСчета.id_типа_счета == account_from_type.id_типа_счета
     ).first()
 
     if not account_type:
         raise HTTPException(status_code=400, detail=f"Тип счета с ID {account_from_type.id_типа_счета} не найден.")
 
-    db_account_from_type = models.ВидСчета(
+    db_account_from_type = ВидСчета(
         название_вида_счета=account_from_type.название_вида_счета,
         тип=account_type
     )
@@ -333,14 +342,14 @@ def create_account_from_type(db: Session, account_from_type: schemas.ВидСч�
     return db_account_from_type
 
 def create_interest_rate(db: Session, interest_rate: schemas.ПроцентнаяСтавкаBase):
-    db_вид_счета = db.query(models.ВидСчета).filter(
-        models.ВидСчета.id_вида_счета == interest_rate.id_вида_счета).first()
+    db_вид_счета = db.query(ВидСчета).filter(
+        ВидСчета.id_вида_счета == interest_rate.id_вида_счета).first()
     if not db_вид_счета:
         raise HTTPException(status_code=404, detail="Вид счета не найден")
 
     interest_rate.дата_изменения = datetime.utcnow()
 
-    db_ставка = models.ПроцентнаяСтавка(
+    db_ставка = ПроцентнаяСтавка(
         процентная_ставка=interest_rate.процентная_ставка,
         id_вида_счета=interest_rate.id_вида_счета,
         дата_изменения=interest_rate.дата_изменения
@@ -351,7 +360,7 @@ def create_interest_rate(db: Session, interest_rate: schemas.Процентна�
     return (db_ставка)
 
 def delete_account_type_by_id(db: Session, id_вида_счета: int):
-    account_type = db.query(models.ВидСчета).filter(models.ВидСчета.id_вида_счета == id_вида_счета).first()
+    account_type = db.query(ВидСчета).filter(ВидСчета.id_вида_счета == id_вида_счета).first()
     if not account_type:
         raise HTTPException(status_code=404, detail=f"Вид счета с ID {id_вида_счета} не найден.")
 
@@ -361,43 +370,41 @@ def delete_account_type_by_id(db: Session, id_вида_счета: int):
     return {"message": f"Вид счета с ID {id_вида_счета} успешно удален."}
 
 def get_clients(db: Session):
-    return db.query(models.Клиент).all()
+    return db.query(Клиент).all()
 
 def get_client_by_id(db: Session, client_id: int):
-    return db.query(models.Клиент).filter(models.Клиент.id_клиента == client_id).first()
+    return db.query(Клиент).filter(Клиент.id_клиента == client_id).first()
 
 def get_roles(db: Session):
-    return db.query(models.Роль).all()
+    return db.query(Роль).all()
 
 def get_operations(db: Session):
-    return db.query(models.Операция).all()
+    return db.query(Операция).all()
 
 def get_street(db: Session):
-    return db.query(models.Улица).all()
+    return db.query(Улица).all()
 
 def get_account_type(db: Session):
-    return db.query(models.ТипСчета).all()
+    return db.query(ТипСчета).all()
 
 def get_account_from_type(db: Session):
-    return db.query(models.ВидСчета).options(
-        joinedload(models.ВидСчета.тип),
-        joinedload(models.ВидСчета.процентные_ставки)
+    return db.query(ВидСчета).options(
+        joinedload(ВидСчета.тип),
+        joinedload(ВидСчета.процентные_ставки)
     ).all()
 
 def get_interest_rates(db: Session):
-    return db.query(models.ПроцентнаяСтавка).all()
+    return db.query(ПроцентнаяСтавка).all()
 
 def get_all_branches(db: Session):
-    return db.query(models.Филиал).all()
+    return db.query(Филиал).all()
 
 def get_id_interest_rate(db: Session, id_процентной_ставки: int):
-    return db.query(models.ПроцентнаяСтавка).filter(models.ПроцентнаяСтавка.id_процентной_ставки == id_процентной_ставки).first()
+    return db.query(ПроцентнаяСтавка).filter(ПроцентнаяСтавка.id_процентной_ставки == id_процентной_ставки).first()
 
-def get_all_type_invest(db: Session):
-    return db.query(models.ТипИнвестиций).all()
 
 def update_interest_rate(db: Session, id_процентной_ставки: int, interest_rate: schemas.ПроцентнаяСтавкаBase):
-    db_rate = db.query(models.ПроцентнаяСтавка).filter(models.ПроцентнаяСтавка.id_процентной_ставки == id_процентной_ставки).first()
+    db_rate = db.query(ПроцентнаяСтавка).filter(ПроцентнаяСтавка.id_процентной_ставки == id_процентной_ставки).first()
     if db_rate is None:
         return None
     db_rate.процентная_ставка = interest_rate.процентная_ставка
@@ -413,8 +420,8 @@ def transfer_funds(id_sender_account: int, id_recipient_account: int, amount: in
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Сумма перевода должна быть положительной.")
 
-    sender = db.query(models.Счет).filter(models.Счет.id_счета == id_sender_account).first()
-    recipient = db.query(models.Счет).filter(models.Счет.id_счета == id_recipient_account).first()
+    sender = db.query(Счет).filter(Счет.id_счета == id_sender_account).first()
+    recipient = db.query(Счет).filter(Счет.id_счета == id_recipient_account).first()
 
     if not sender or not recipient:
         raise HTTPException(status_code=404, detail="Один из счетов не найден")
@@ -428,14 +435,14 @@ def transfer_funds(id_sender_account: int, id_recipient_account: int, amount: in
     sender.баланс -= amount
     recipient.баланс += amount
 
-    operation = db.query(models.Операция).filter(models.Операция.id_операции == 3).first()  # перевод
+    operation = db.query(Операция).filter(Операция.id_операции == 3).first()  # перевод
     if not operation:
         raise HTTPException(status_code=404, detail="Операция 'перевод' не найдена")
 
     db.add_all([
-        models.БанковскаяОперация(id_счета=sender.id_счета, сумма=-amount,
+        БанковскаяОперация(id_счета=sender.id_счета, сумма=-amount,
                                   id_операции=operation.id_операции, дата_операции=datetime.utcnow()),
-        models.БанковскаяОперация(id_счета=recipient.id_счета, сумма=amount,
+        БанковскаяОперация(id_счета=recipient.id_счета, сумма=amount,
                                   id_операции=operation.id_операции, дата_операции=datetime.utcnow())
     ])
 
@@ -444,7 +451,7 @@ def transfer_funds(id_sender_account: int, id_recipient_account: int, amount: in
     db.refresh(recipient)
 
 def cash_withdrawal(id_account: int, amount: int, db):
-    account = db.query(models.Счет).filter(models.Счет.id_счета == id_account).first()
+    account = db.query(Счет).filter(Счет.id_счета == id_account).first()
 
     if not account:
         raise HTTPException(status_code=404, detail="Счёт не найден")
@@ -457,11 +464,11 @@ def cash_withdrawal(id_account: int, amount: int, db):
 
     account.баланс -= amount
 
-    operation = db.query(models.Операция).filter(models.Операция.id_операции == 2).first()  # снятие
+    operation = db.query(Операция).filter(Операция.id_операции == 2).first()  # снятие
     if not operation:
         raise HTTPException(status_code=404, detail="Операция 'снятие' не найдена")
 
-    db.add(models.БанковскаяОперация(
+    db.add(БанковскаяОперация(
         id_счета=account.id_счета,
         сумма=-amount,
         id_операции=operation.id_операции,
@@ -475,7 +482,7 @@ def cash_replenishment(id_account: int, amount: int, db):
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Сумма должна быть положительной")
 
-    account = db.query(models.Счет).filter(models.Счет.id_счета == id_account).first()
+    account = db.query(Счет).filter(Счет.id_счета == id_account).first()
 
     if not account:
         raise HTTPException(status_code=404, detail="Счёт не найден")
@@ -485,11 +492,11 @@ def cash_replenishment(id_account: int, amount: int, db):
 
     account.баланс += amount
 
-    operation = db.query(models.Операция).filter(models.Операция.id_операции == 1).first()  # пополнение
+    operation = db.query(Операция).filter(Операция.id_операции == 1).first()  # пополнение
     if not operation:
         raise HTTPException(status_code=404, detail="Операция 'пополнение' не найдена")
 
-    db.add(models.БанковскаяОперация(
+    db.add(БанковскаяОперация(
         id_счета=account.id_счета,
         сумма=amount,
         id_операции=operation.id_операции,
@@ -501,7 +508,7 @@ def cash_replenishment(id_account: int, amount: int, db):
 
 class CRUDClient:
     def update_client(self, db: Session, client_id: int, client_update: schemas.КлиентUpdate):
-        db_client = db.query(models.Клиент).filter(models.Клиент.id_клиента == client_id).first()
+        db_client = db.query(Клиент).filter(Клиент.id_клиента == client_id).first()
         if not db_client:
             raise HTTPException(status_code=404, detail="Клиент не найден.")
 

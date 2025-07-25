@@ -1,7 +1,7 @@
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
-from . import models, database
-from .routes import router
+from backend import models, database
+from backend.routes import router
 
 app = FastAPI(
     title="VIP Банк API",
